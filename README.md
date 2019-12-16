@@ -1,12 +1,15 @@
-# Private NAS for the Raspberry PI
+# Cloud NAS for the Raspberry PI
 
-Turn your [Raspberry PI](http://raspberrypi.org) within **15 minutes** into a **private NAS** allowing **remote access** from remote network!
+Turn your [Raspberry PI](http://raspberrypi.org) within **15 minutes** into a **Cloud Network-Attached-Storage/-Server** allowing **access from remote** networks as well as serving any **Docker Container**.
 
 Inspired by he [The MagPi Magazine](https://magpi.raspberrypi.org/articles/build-a-raspberry-pi-nas) about **creating a NAS with the new Raspberry Pi 4** I added
 
-* [cloud-init](https://cloud-init.io/) for automatic **provisioning of customized cloud instances**, 
-* [rpi-dyndns](https://github.com/netzfisch/rpi-dyndns) for **dynamic DNS** resolution and 
-* [rpi-vpn-server](https://github.com/netzfisch/rpi-vpn-server) to **access the NAS** from a remote network.
+* [cloud-init](https://cloud-init.io/) for automatic **provisioning of customized cloud instances**,
+* [rpi-dyndns](https://github.com/netzfisch/rpi-dyndns) for **dynamic DNS** resolution and
+* [rpi-vpn-server](https://github.com/netzfisch/rpi-vpn-server) to **access the NAS** from a remote network and
+* based it on [HypriotOS](https://blog.hypriot.com/about/) for **docker host/server** functioniality.
+
+If you find this useful, **do not forget to star** the repository ;-)
 
 ## Requirements
 
@@ -18,14 +21,21 @@ Inspired by he [The MagPi Magazine](https://magpi.raspberrypi.org/articles/build
 
 - **Before flashing** check the [user-data.yaml](https://github.com/netzfisch/rpi-private-nas/blob/master/user-data.yaml) file and
 - **customise the configuration** to your needs manually, eg. change usernames, passwords, packages, network interface, hard disks, etc.
-- Than **Install HypriotOS** a Raspbian based debian derivate, which results to a fully working docker host, see  [bootstrapping with cloud-init](https://blog.hypriot.com/post/cloud-init-cloud-on-hypriot-x64/) and download the raspberry image from [here](http://blog.hypriot.com/downloads/)!
+- Than **Install HypriotOS** a Raspbian based debian derivate, see [bootstrapping with cloud-init](https://blog.hypriot.com/post/cloud-init-cloud-on-hypriot-x64/) and download the image from [here](http://blog.hypriot.com/downloads/)!
 
 ```sh
 $ curl -LO https://github.com/hypriot/flash/releases/download/2.3.0/flash
 $ chmod +x flash
 $ ./flash -u user-data.yaml -d /dev/mmcblk0 -f hypriotos-rpi-v1.11.4.img
 ```
-- Put the SD-Card back into the Raspberry and boot. The NAS will be **automatically provisioned** and set up - **repeatable and reliable** - done!
+
+- Put the SD-Card back into the Raspberry and boot. The NAS will be **automatically provisioned** and set up - **repeatable and reliable** :-)
+- For configuration of DynDNS and VPN check the repective documentation,
+  especially
+  - set the update token for [rpi-dyndns](https://github.com/netzfisch/rpi-dyndns),
+  - import/generate the secrets for [rpi-vpn-server](https://github.com/netzfisch/rpi-vpn-server), and
+  - enable port forwarding at your firewall for the UDP ports 500 and 4500.
+- **Done!**
 
 ### Debugging
 
