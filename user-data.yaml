@@ -1,0 +1,194 @@
+#cloud-config
+# vim: syntax=yaml
+#
+# BEFORE flashing change at least these settings to your needs, manually:
+#
+# CTRL+: %s/hypriot/.../g
+# CTRL+: %s/ssh-rsa AAA...==/.../g
+# CTRL+: %s/user1/.../gc
+# CTRL+: %s/password1/.../g
+# CTRL+: %s/user2/.../gc
+# CTRL+: %s/password2/.../g
+# CTRL+: %s/subdomain.spdns.de/.../g
+# CTRL+: %s/private-token/.../g
+# CTRL+: %s/2019-12-16 17:42:13/.../g
+#
+# See also the documentation at https://cloudinit.readthedocs.io/en/18.3/,
+# than flash the SD-Card and boot the Raspberry:
+#
+# $ curl -LO https://github.com/hypriot/flash/releases/download/2.3.0/flash
+# $ chmod +x flash
+# $ ./flash -u user-data.yaml -d /dev/mmcblk0 -f hypriotos-rpi-v1.11.4.img
+#
+
+
+# set hostname and update hosts-file entries
+hostname: nas
+manage_etc_hosts: true
+# preserve adding debian.org to apt mirrors
+apt_preserve_sources_list: true
+
+# modify user information
+users:
+  - name: pirate
+    gecos: "Hypriot Pirate"
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+    groups: users,docker,video
+    plain_text_passwd: hypriot
+    lock_passwd: false
+    ssh_pwauth: true
+    chpasswd: { expire: false }
+    ssh-authorized-keys:
+      - ssh-rsa AAA...==
+  - name: user1
+    inactive: true
+    lock_passwd: true
+    shell: /usr/sbin/nologin
+    no_create_home: true
+  - name: user2
+    inactive: true
+    lock_passwd: true
+    shell: /usr/sbin/nologin
+    no_create_home: true
+
+package_update: true
+package_upgrade: true
+package_reboot_if_required: true
+packages:
+  - mc
+  - mdadm
+  - samba
+  - samba-common-bin
+  - tmux
+  - vim
+
+timezone: "Europe/Berlin"
+#locale: "en_US.UTF-8"
+
+#device_aliases:
+#   <alias name>: <device path>
+disk_setup:
+    /dev/sda:
+        table_type: gpt
+        layout: true
+        overwrite: true
+fs_setup:
+    - label: ssd1
+      filesystem: ext4
+      device: /dev/sda
+      partition: auto
+      overwrite: true
+#     replace_fs: <filesystem type>
+
+disk_setup:
+    /dev/sdb:
+        table_type: gpt
+        layout: true
+        overwrite: true
+fs_setup:
+    - label: ssd2
+      filesystem: ext4
+      device: /dev/sdb
+      partition: auto
+      overwrite: true
+#     replace_fs: <filesystem type>
+
+write_files:
+  # configure static network interface
+  - content: |
+      # see configuration options via 'man dhcpcd.conf'
+      hostname
+      persistent
+      slaac private
+
+      interface eth0
+      static ip_address=192.168.1.23
+      # static ip6_address=fd51:42f8:caae:d92e::ff/64
+      static routers=192.168.1.13
+      static domain_name_servers=192.168.1.13 8.8.8.8
+    path: /etc/dhcpcd.conf
+
+  # configure SAMBA shares
+  - content: |
+      [user1]
+      path=/mnt/raid1/user1
+      create mask=0700
+      directory mask=0700
+      valid users = user1
+      write list = user1
+      map read only = no
+
+      [user2]
+      path=/mnt/raid1/user2
+      create mask=0700
+      directory mask=0700
+      valid users = user2,user1
+      write list = user2,user1
+      map read only = no
+
+      [shared]
+      path=/mnt/raid1/shared
+      writeable=Yes
+      create mask=0777
+      directory mask=0777
+      public=no
+
+      [public]
+      path=/mnt/raid1/public
+      browseable = yes
+      writable = yes
+      public = yes
+      guest ok = yes
+      map read only = no
+    path: /etc/samba/smb.conf
+
+bootcmd:
+  # poor-man's fix according issue https://github.com/hypriot/image-builder-rpi/issues/304
+  # check also pull request https://github.com/hypriot/flash/pull/152
+  - date >> /var/log/cloud-init-output.log
+  - date -s '2019-12-16 17:42:13'
+
+# these commands will run once on first boot only
+runcmd:
+  # pickup hostname-, network-changes
+  - systemctl restart avahi-daemon
+  - systemctl restart docker
+
+  # configure RAID disks
+  - mdadm --create --run --verbose /dev/md0 --level=mirror --raid-devices=2 /dev/sda1 /dev/sdb1
+  - mkfs.ext4 /dev/md0
+  - mkdir -p /mnt/raid1
+  - mount /dev/md0 /mnt/raid1/
+  - echo '/dev/md0 /mnt/raid1/ ext4 defaults,nofail,noatime 0 1' >> /etc/fstab
+  - mdadm --detail --scan | tee -a /etc/mdadm/mdadm.conf
+  # verify settings at /var/log/cloud-init-output.log
+  - lsblk && mdadm --detail /dev/md/0 && df -h
+
+  # configure SAMBA shares
+  - mkdir /mnt/raid1/user1 /mnt/raid1/user2 /mnt/raid1/shared /mnt/raid1/public
+  - chmod -R 777 /mnt/raid1/shared /mnt/raid1/public
+  - chmod -R 700 /mnt/raid1/user1 /mnt/raid1/user2
+  - chown -R user1:user1 /mnt/raid1/user1
+  - chown -R user2:user2 /mnt/raid1/user2
+  - (echo password1; echo password1) | smbpasswd -a user1 -s
+  - (echo password2; echo password2) | smbpasswd -a user2 -s
+  - systemctl restart smbd
+
+  # set up remote access with dynamic DNS-updates and VPN-access
+  - docker run --name ddclient --env HOSTNAME=subdomain.spdns.de --env UPDATE_TOKEN=private-token --restart unless-stopped --detach netzfisch/rpi-dyndns
+  - docker run --name vpnserver --cap-add NET_ADMIN --publish 500:500/udp --publish 4500:4500/udp --volume /mnt/raid1/shared/configs/vpn:/mnt --restart unless-stopped --detach netzfisch/rpi-vpn-server
+
+final_message: "The system is finally up, after $UPTIME seconds"
+
+# To DEBUG log into the instance, check '/var/log/cloud-init-output.log', and
+# run single commands to verify, e.g.:
+#
+# $ sudo cloud-init single --name users_groups --frequency always
+#
+# Edit '/boot/user-data', see https://cloudinit.readthedocs.io/en/18.3/) for
+# details. BEFORE reboot, clean up:
+#
+# $ sudo rm -R /etc/mdadm/mdadm.conf /etc/samba/smb.conf /mnt/raid1/*
+# $ docker stop ddclient vpnserver && docker rm ddclient vpnserver
+# $ sudo cloud-init clean --logs --reboot
